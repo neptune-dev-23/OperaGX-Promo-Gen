@@ -15,6 +15,8 @@ except ModuleNotFoundError:
 f = open("promos.txt",'r+')
 genned = len(f.read().splitlines())
 f.close()
+f = open("proxies.txt", 'r+')
+f.close()
 
 class Logger:
     @staticmethod
@@ -41,7 +43,16 @@ async def gen(idx, proxy = None):
             f = open("promos.txt",'a')
             f.write(f"{link}\n")
             f.close()
-
+async def load_proxies(filename):
+    links = open(filename, "r").read().splitlines()
+    with open("proxies.txt", 'a+') as f:
+        async with aiohttp.ClientSession() as session:
+            for link in links:
+                async with session.get(link) as resp:
+                    proxies = [x.strip() for x in (await resp.text()).split("\n")]
+                    f.write("\n")
+                    f.write("\n".join(proxies))
+                    
 async def run(idx, proxy = None):
     if proxy:
         proxy = f"http://{proxy}"
@@ -80,11 +91,15 @@ async def run(idx, proxy = None):
                 f.close()
                 return
 
-if __name__=="__main__":
+
+async def setup(): 
     init()
+    await load_proxies("proxy_sources.txt")
+
+def main():
     with open("proxies.txt") as f:
         proxy = f.read().splitlines()
-    loop = asyncio.get_event_loop()
+    loop = asyncio.new_event_loop()
     for i, p in enumerate(proxy):
         loop.create_task(run(i, p))
     try: 
@@ -92,3 +107,8 @@ if __name__=="__main__":
     except KeyboardInterrupt:
         Logger.Sprint("GEN","Keyboard Interrupt",Fore.LIGHTRED_EX)
         loop.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(setup())
+    main()
