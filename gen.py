@@ -23,7 +23,17 @@ class Logger:
     def Sprint(tag: str, content: str, color):
         ts = f"{Fore.RESET}{Fore.LIGHTBLACK_EX}{datetime.now().strftime('%H:%M:%S')}{Fore.RESET}"
         print(Style.BRIGHT + ts + color + f" [{tag}] " + Fore.RESET + content + Fore.RESET)
-    
+
+class Stop():
+    def __init__(self):
+        self._stop = False
+
+    def stop(self):
+        self._stop = True
+
+    def should_stop(self):
+        return self._stop
+
 async def gen(idx, proxy = None):
     global genned
     async with aiohttp.ClientSession() as session:
@@ -50,15 +60,16 @@ async def load_proxies(filename):
             for link in links:
                 async with session.get(link) as resp:
                     proxies = [x.strip() for x in (await resp.text()).split("\n")]
-                    f.write("\n")
-                    f.write("\n".join(proxies))
+                    f.write("\n" + "\n".join(proxies))
                     
-async def run(idx, proxy = None):
+async def run(stop: Stop, idx, proxy = None):
+    global proxies
+    escape = False
     if proxy:
         proxy = f"http://{proxy}"
     failures = 0
     errors = ['reset by peer', 'Proxy Authentication Required', '503', '403', '502', '500', 'timed out']
-    while True:
+    while not stop.should_stop():
         try: 
             await gen(idx, proxy)
             failures -= 1
@@ -74,21 +85,19 @@ async def run(idx, proxy = None):
                 ('400' in e) or 
                 ('transport' in e)
                   ):
-                failures += 0.5
+                failures += 1
             elif ("api.discord.gx.games" in e):
-                failures += 0.25
-            else:
                 failures += 0.5
+            else:
+                failures += 1
                 failures = round(failures, 4)
-                Logger.Sprint("ERROR",f"Thread ({idx}) ({failures}) {e}",Fore.RED)
+                Logger.Sprint("ERROR",f"Thread ({idx}) ({failures}) {e}",Fore.LIGHTRED_EX)
             if failures >= 5:
                 Logger.Sprint("ERROR",f"Thread ({idx}) Proxy ({proxy.split('//')[1]}) is dead!",Fore.RED)
-                with open("proxies.txt", "r") as f:
-                    proxies = f.read().splitlines()
-                proxies.remove(proxy.split("//")[1])
-                f = open("proxies.txt",'w')
-                f.write("\n".join(proxies))
-                f.close()
+                proxies.remove(proxy.split("//")[1] if proxy.strip() != "" else proxy)
+                to_write = "\n".join(proxies)
+                with open("proxies.txt", 'w+') as f:
+                    f.write(to_write)
                 return
 
 
@@ -97,16 +106,20 @@ async def setup():
     await load_proxies("proxy_sources.txt")
 
 def main():
-    with open("proxies.txt") as f:
-        proxy = f.read().splitlines()
+    global proxies
+    f = open("proxies.txt", 'r+')
+    proxies = f.read().splitlines()
     loop = asyncio.new_event_loop()
-    for i, p in enumerate(proxy):
-        loop.create_task(run(i, p))
+    stop = Stop()
+    for i, p in enumerate(proxies):
+        loop.create_task(run(stop, i, p))
     try: 
         loop.run_until_complete(asyncio.gather(*asyncio.all_tasks(loop)))
     except KeyboardInterrupt:
-        Logger.Sprint("GEN","Keyboard Interrupt",Fore.LIGHTRED_EX)
-        loop.close()
+        Logger.Sprint("GEN","Exiting and cleaning up...",Fore.LIGHTRED_EX)
+        with open("proxies.txt", 'w+') as f:
+            f.write("\n".join(proxies))
+        stop.stop()
 
 
 if __name__ == "__main__":
